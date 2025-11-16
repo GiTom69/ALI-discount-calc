@@ -1,27 +1,26 @@
-import math
 import pathlib
+import re
+from itertools import combinations, chain
 
 class Coupon:
     min_total_amount = 0.0  # Minimum amount to apply the coupon
     discount = 0.0          # Discount amount
-    codes = []              # List of coupon codes
-    def __init__(self, codes: str | list[str], min_total_amount:float, discount: float):
+    code = ""               # Single coupon code
+    def __init__(self, code: str, min_total_amount: float, discount: float):
         """
         Initialize a Coupon instance.
         Args:
-            codes (str | list[str]): The coupon code(s). Can be a single code string or a list of codes.
+            code (str): The coupon code (single code only).
             min_total_amount (float): The minimum total amount required to apply the coupon.
             discount (float): The discount percentage to be applied.
         """
-        # Convert single code string to list for uniform handling
-        if isinstance(codes, str):
-            self.codes = codes.split(",",)  # Support comma-separated codes in a single string
-        elif isinstance(codes, list):
-            self.codes = codes 
-        elif not self.codes or all(code.strip() == "" for code in self.codes):
-            raise ValueError("At least one non-empty coupon code must be provided.")
-        else:
-            raise ValueError("Codes must be a string or a list of strings.")
+        if not isinstance(code, str):
+            raise ValueError("Code must be a string.")
+        
+        self.code = code.strip()
+        
+        if not self.code:
+            raise ValueError("Coupon code cannot be empty.")
         
         self.min_total_amount = min_total_amount
         self.discount = discount
@@ -57,8 +56,7 @@ class Coupon:
 
     def __str__(self):
         """String representation of the Coupon instance."""
-        codes_str = ", ".join(self.codes)
-        return f"Coupon(codes=[{codes_str}], min_total_amount={self.min_total_amount}, discount={self.discount}%)"
+        return f"Coupon(code={self.code}, min_total_amount={self.min_total_amount}, discount={self.discount}%)"
 
 class CartItem:
     # implemet params:
@@ -358,8 +356,9 @@ def load_cart_items_from_file(cart_file_path: str) -> list[CartItem]:
                 if 'shipping' not in item_data:
                     item_data['shipping'] = '0.0'
                 
-                item_data['quantity'] = 1
-                item_data['stock_note'] = ''
+                # ignore this error for now, set quantity to 1
+                # item_data['quantity'] = 1
+                # item_data['stock_note'] = ''
                 
                 try:
                     cart_item = CartItem(**item_data)
@@ -377,11 +376,208 @@ def load_cart_items_from_file(cart_file_path: str) -> list[CartItem]:
     
     return cart_items
 
-def load_coupons_from_file(coupons_file_path: str) -> list[Coupon]:
-    pass
+def load_coupons_from_file(coupons_file_path: str, max_rows_for_coupon: int = 5) -> list[Coupon]:
+    """
+    Load coupons from a text file.
+    
+    Logic:
+    - Detect if file contains emojis
+    - If emojis exist: Each coupon starts at an emoji line and continues until:
+      * Same currency detected twice (min_amount and discount)
+      * One or more codes found
+      * max_rows_for_coupon reached
+    - If no emojis: Parse lines detecting currency amounts and codes
+    
+    Supports currencies: $, USD, ₪, NIS, ILS, €, EUR, £, GBP
+    
+    Args:
+        coupons_file_path (str): Path to the coupons file.
+        
+    Returns:
+        list[Coupon]: List of Coupon objects parsed from the file.
+        Each code becomes a separate Coupon instance.
+        
+    Raises:
+        FileNotFoundError: If the coupons file doesn't exist.
+        ValueError: If the file format is invalid or cannot be parsed.
+    """
+    
+    coupons_path = pathlib.Path(coupons_file_path)
+    if not coupons_path.exists():
+        raise FileNotFoundError(f"Coupons file not found: {coupons_file_path}")
+    
+    content = None
 
-def generate_coupon_combinations(coupons: list[Coupon]) -> list[tuple[Coupon]]:
-    pass
+    with open(coupons_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    lines = content.split('\n')
+    
+    # Check if file contains emojis
+    emoji_pattern = r'[\U0001F300-\U0001F9FF]|[\U00002600-\U000027BF]'
+    has_emojis = any(re.search(emoji_pattern, line) for line in lines)
+    
+    # Currency patterns (matches: $10, 10$, US $10, 10 USD, ₪10, 10 NIS, etc.)
+    currency_pattern = r'(?:US\s*)?(?:[$₪€£])\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:[$₪€£]|USD|NIS|ILS|EUR|GBP)'
+    
+    # Coupon code pattern (alphanumeric codes, typically 6-10 characters)
+    code_pattern = r'\b([A-Z0-9]{6,12})\b'
+    
+    coupons = []
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Skip empty lines and common headers/footers
+        if (not line or 
+            line.startswith('http') or
+            line.startswith('www.') or
+            'click' in line.lower() and 'here' in line.lower()):
+            i += 1
+            continue
+        
+        # Check if this line could start a coupon entry
+        has_emoji_here = bool(re.search(emoji_pattern, line)) if has_emojis else True
+        has_currency_here = bool(re.search(currency_pattern, line))
+        
+        # Skip if emojis expected but not found, or no currency info
+        if has_emojis and not has_emoji_here:
+            i += 1
+            continue
+        
+        if not has_currency_here:
+            i += 1
+            continue
+        
+        # Start collecting data for a coupon (possibly multi-line)
+        collected_lines = []
+        rows_collected = 0
+        
+        while i < len(lines) and rows_collected < max_rows_for_coupon:
+            current_line = lines[i].strip()
+            
+            # Stop at next emoji (start of new coupon) if we already collected something
+            if rows_collected > 0 and has_emojis and re.search(emoji_pattern, current_line):
+                break
+            
+            # Stop at URLs or major section breaks
+            if current_line.startswith('http') or current_line.startswith('www.'):
+                break
+            
+            if current_line:
+                collected_lines.append(current_line)
+                rows_collected += 1
+            
+            i += 1
+        
+        # Parse collected lines to extract amounts and codes
+        combined_text = ' '.join(collected_lines)
+        
+        # Extract all currency amounts
+        amounts = []
+        for match in re.finditer(currency_pattern, combined_text):
+            amount_str = match.group(1) if match.group(1) else match.group(2)
+            if amount_str:
+                amounts.append(float(amount_str))
+        
+        # Extract all coupon codes
+        codes = []
+        for match in re.finditer(code_pattern, combined_text):
+            code = match.group(1)
+            # Filter out common non-code words that might match the pattern
+            if code not in ['HTTPS', 'HTTP', 'CLICK', 'COUPON']:
+                codes.append(code)
+        
+        # Validate: need at least 2 amounts (discount and min_amount) and at least 1 code
+        if len(amounts) >= 2 and len(codes) >= 1:
+            # Typically: first amount is discount, second is min_amount
+            # Or could be reversed depending on format
+            # Use heuristic: smaller value is usually discount, larger is min_amount
+            if amounts[0] < amounts[1]:
+                discount = amounts[0]
+                min_amount = amounts[1]
+            else:
+                discount = amounts[1]
+                min_amount = amounts[0]
+            
+            # Create separate Coupon for each code
+            for code in codes:
+                try:
+                    coupon = Coupon(code, min_amount, discount)
+                    coupons.append(coupon)
+                except ValueError:
+                    # Skip invalid coupons
+                    pass
+    
+    if not coupons:
+        raise ValueError("No valid coupons found in file. Please check the file format.")
+    
+    return coupons
+
+def generate_coupon_combinations(coupons: list[Coupon], max_coupons: int | None = None) -> list[tuple[Coupon]]:
+    """
+    Generate all possible combinations of the given coupons, optionally limiting the maximum number of coupons in a combination.
+
+    Args:
+        coupons (list[Coupon]): List of Coupon objects.
+        max_coupons (int | None): Maximum number of coupons to combine. If None, use all coupons.
+
+    Returns:
+        list[tuple[Coupon]]: List of tuples, each containing a combination of Coupon objects.
+    """
+    if not coupons:
+        return []
+
+    if max_coupons is None:
+        max_coupons = len(coupons)
+    else:
+        if not isinstance(max_coupons, int) or max_coupons < 1: 
+            raise ValueError("max_coupons must be a positive integer or None.")
+        max_coupons = min(max_coupons, len(coupons))
+
+    for c in coupons:
+        if not isinstance(c, Coupon):
+            raise ValueError("All items in coupons list must be Coupon instances.")
+        
+    all_combinations = []
+    for r in range(1, max_coupons + 1):
+        all_coupon_combs = combinations(coupons, r)
+        # filter combinations where total min_total_amount <= sum of discounts
+        valid_combs = []
+
+        for combo in all_coupon_combs:
+            sum_min_total_amount = sum(c.min_total_amount for c in combo)
+            sum_discounts = sum(c.discount for c in combo)
+
+            if sum_min_total_amount <= sum_discounts:
+                valid_combs.append(combo)
+
+        all_combinations.extend(valid_combs)
+    
+    return all_combinations
+
+
+
+    # return list(chain.from_iterable(combinations(coupons, r) for r in range(1, max_coupons + 1)))
+
+def generate_item_combinations(items: list[CartItem]) -> list[tuple[CartItem]]:
+    """
+    Generate all possible combinations of the given cart items.
+    Args:
+        items (list[CartItem]): List of CartItem objects.
+    Returns:
+        list[tuple[CartItem]]: List of tuples, each containing a combination of CartItem objects.
+    """
+    if not items:
+        return []
+        
+    all_combinations = []
+    for r in range(1, len(items) + 1):
+        combs = combinations(items, r)
+        all_combinations.extend(combs)
+    
+    return all_combinations
 
 def main():
     my_cart = load_cart_items_from_file(CART_FILE_PATH)
@@ -411,7 +607,7 @@ def main():
     #max coupons to reach the total amount (worst case scenario, from smallest coupon be ascending price):
     max_coupons_needed:int = 0
     total_discounted:float = 0.0
-    for discount in [coupon.discount for coupon in available_coupons].sort(): #sort discounts ascending
+    for discount in sorted([coupon.discount for coupon in available_coupons]): #sort discounts ascending
         max_coupons_needed += 1
         total_discounted += discount
         if total_discounted >= total_amount:
