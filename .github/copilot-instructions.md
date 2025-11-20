@@ -34,15 +34,34 @@ Represents a shopping cart item with:
 ## Core Functionality
 
 ### File Processing
-- `load_cart_items_from_file(cart_file_path)`: Parse cart data from text file
-- `load_coupons_from_file(coupons_file_path)`: Parse coupon data from text file
+- `load_cart_items_from_file(cart_file_path)`: Parse AliExpress cart data from text file
+  - Handles multi-line product names
+  - Extracts variant, prices, shipping, store info
+  - Skips URLs and navigation elements
+  - Returns list of `CartItem` objects
+- `load_coupons_from_file(coupons_file_path, max_rows_for_coupon=5)`: Parse coupon data
+  - Auto-detects emoji-based formatting
+  - Supports multiple currencies: $, USD, ₪, NIS, ILS, €, EUR, £, GBP
+  - Extracts min amounts, discounts, and coupon codes
+  - Creates separate `Coupon` instance for each code
 - Default file paths: `cart.txt` and `coupons.txt`
 
-### Optimization Logic
-- Generate all possible coupon combinations
-- Filter applicable combinations based on cart total
-- Calculate maximum savings for each valid combination
-- Find optimal coupon stack that maximizes discount
+### Optimization Logic (In Progress)
+Current approach:
+1. Generate all valid coupon combinations (filtered by total cart value)
+2. Generate all item groupings (by number of groups matching coupon count)
+3. Match item groups to coupon groups where item_total >= coupon_min_total
+4. **TODO**: Calculate final discounted prices for each valid pairing
+5. **TODO**: Find optimal combination that maximizes total discount
+
+Key functions:
+- `generate_all_coupon_combinations()`: Creates all valid coupon combos up to max_coupons
+- `generate_n_coupon_combinations()`: Creates n-sized coupon groups under discount limit
+- `generate_item_combinations()`: Creates all possible item combinations
+- `generate_n_item_combinations()`: Creates n-sized item groups
+- `calc_tot_coupons_cost()`: Sums discount amounts
+- `calc_tot_items_cost()`: Sums item costs
+- `get_max_coupons_needed()`: Determines worst-case coupon count needed
 
 ## Implementation Guidelines
 
@@ -56,9 +75,23 @@ Represents a shopping cart item with:
 
 ## Current Development Status
 - ✅ Base classes (`Coupon`, `CartItem`) implemented with validation
-- ⚠️ File parsing functions need implementation
-- ⚠️ Coupon combination generation logic in progress
-- ⚠️ Optimization algorithm needs refinement
+- ✅ File parsing functions implemented:
+  - `load_cart_items_from_file()`: Parses AliExpress cart text files
+  - `load_coupons_from_file()`: Parses coupon data with emoji detection and multi-currency support
+- ✅ Coupon combination generation logic implemented:
+  - `generate_all_coupon_combinations()`: Generates all valid coupon combinations
+  - `generate_n_coupon_combinations()`: Generates n-sized coupon groups
+  - `calc_tot_coupons_cost()`: Calculates total discount from coupon list
+- ✅ Item combination generation logic implemented:
+  - `generate_item_combinations()`: Generates all item combinations
+  - `generate_n_item_combinations()`: Generates n-sized item groups
+  - `calc_tot_items_cost()`: Calculates total cost of items
+- ✅ Helper utilities:
+  - `get_max_coupons_needed()`: Calculates maximum coupons needed for a total
+- ⚠️ Main optimization algorithm in progress:
+  - Item-to-coupon matching logic needs completion
+  - Need to implement optimal pairing algorithm between item groups and coupon groups
+  - Final best-combination selection logic needed
 
 ## When Generating Code
 - Maintain existing validation patterns
