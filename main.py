@@ -516,7 +516,7 @@ def load_coupons_from_file(coupons_file_path: str,
     
     return coupons
 
-def calc_tot_coupons_cost(coupons: list[Coupon]) -> float:
+def tot_coupons_cost(coupons: list[Coupon]) -> float:
     """
     Calculate the total discount amount from a list of coupons.
     Args:
@@ -527,49 +527,15 @@ def calc_tot_coupons_cost(coupons: list[Coupon]) -> float:
     """
     return sum(coupon.discount for coupon in coupons)
 
-def generate_all_coupon_combinations(coupons: list[Coupon],
-                                     max_coupons: int | None = None,
-                                     max_tot_discount: float | None = None) -> list[tuple[Coupon]]:
+def tot_items_cost(items: list[CartItem] | tuple[CartItem]) -> float:
     """
-    Generate all possible combinations of the given coupons, optionally limiting the maximum number of coupons in a combination.
-
+    Calculate the total cost of a list of cart items.
     Args:
-        coupons (list[Coupon]): List of Coupon objects.
-        max_coupons (int | None): Maximum number of coupons to combine. If None, use all coupons.
-
+        items (list[CartItem] | tuple[CartItem]): Collection of CartItem objects.
     Returns:
-        list[tuple[Coupon]]: List of tuples, each containing a combination of Coupon objects.
+        float: Total cost of all items.
     """
-    if not coupons:
-        return []
-
-    if max_coupons is None:
-        max_coupons = len(coupons)
-
-    elif not isinstance(max_coupons, int) or max_coupons < 1:
-        max_coupons = min(max_coupons, len(coupons))
-        raise ValueError("max_coupons must be a positive integer or None.")
-
-    for c in coupons:
-        if not isinstance(c, Coupon):
-            raise ValueError("All items in coupons list must be Coupon instances.")
-        
-    all_combinations = []
-    for r in range(1, max_coupons + 1):
-        all_coupon_combs = combinations(coupons, r)
-        # filter combinations where total min_total_amount <= sum of discounts
-        valid_combs = []
-
-        for combo in all_coupon_combs:
-            sum_min_total_amount =  sum(c.min_total_amount for c in combo)
-            sum_discounts =         sum(c.discount for c in combo)
-
-            if sum_min_total_amount <= max_tot_discount:
-                valid_combs.append(combo)
-
-        all_combinations.extend(valid_combs)
-    
-    return all_combinations
+    return sum(item.get_total_price() for item in items)
 
 def generate_n_coupon_combinations(coupon_list:list[Coupon],
                                    n: int,
@@ -588,27 +554,9 @@ def generate_n_coupon_combinations(coupon_list:list[Coupon],
     if max_tot_discount is None:
         return list(n_coupon_combs)
     
-    return [comb for comb in n_coupon_combs if calc_tot_coupons_cost(comb) <= max_tot_discount]
+    return [comb for comb in n_coupon_combs if tot_coupons_cost(comb) <= max_tot_discount]
 
     # return list(chain.from_iterable(combinations(coupons, r) for r in range(1, max_coupons + 1)))
-
-def generate_item_combinations(items: list[CartItem]) -> list[tuple[CartItem]]:
-    """
-    Generate all possible combinations of the given cart items.
-    Args:
-        items (list[CartItem]): List of CartItem objects.
-    Returns:
-        list[tuple[CartItem]]: List of tuples, each containing a combination of CartItem objects.
-    """
-    if not items:
-        return []
-        
-    all_combinations = []
-    for r in range(1, len(items) + 1):
-        combs = combinations(items, r)
-        all_combinations.extend(combs)
-    
-    return all_combinations
 
 def generate_n_item_combinations(item_list: list[CartItem],
                                  n: int) -> list[tuple[CartItem]]:
@@ -624,16 +572,6 @@ def generate_n_item_combinations(item_list: list[CartItem],
         return []
     
     return list(combinations(item_list, n))
-
-def calc_tot_items_cost(items: list[CartItem] | tuple[CartItem]) -> float:
-    """
-    Calculate the total cost of a list of cart items.
-    Args:
-        items (list[CartItem] | tuple[CartItem]): Collection of CartItem objects.
-    Returns:
-        float: Total cost of all items.
-    """
-    return sum(item.get_total_price() for item in items)
 
 def get_max_coupons_needed(total_amount: float, coupons: list[Coupon]) -> int:
     """
@@ -660,6 +598,48 @@ def get_max_coupons_needed(total_amount: float, coupons: list[Coupon]) -> int:
             break
 
     return max_coupons
+
+def get_items_left(items: list[CartItem], used_items: list[CartItem]) -> list[CartItem]:
+    """
+    Get the list of cart items that are not in the used_items list.
+    Args:
+        items (list[CartItem]): List of all CartItem objects.
+        used_items (list[CartItem]): List of CartItem objects that have been used.
+    Returns:
+        list[CartItem]: List of CartItem objects that are not in used_items.
+    """
+    used_set = set(used_items)
+    return [item for item in items if item not in used_set]
+
+def get_best_single_coupon(coupons: list[Coupon], item_total: float) -> Coupon | None:
+    """
+    Get the best single coupon that can be applied to the given item total.
+    Args:
+        coupons (list[Coupon]): List of Coupon objects.
+        item_total (float): The total amount of the items.
+    Returns:
+        Coupon | None: The best applicable Coupon object, or None if no coupon is applicable.
+    """
+    applicable_coupons = [coupon for coupon in coupons if coupon.is_applicable(item_total)]
+    if not applicable_coupons:
+        return None
+    
+    # Return the coupon with the highest discount
+    return max(applicable_coupons, key=lambda c: c.discount)
+
+def generate_cart_splits(cart_items: list[CartItem], n_splits: int) -> list[list[list[CartItem]]]:
+    """
+    Generate all possible ways to split cart items into n_splits groups.
+    Args:
+        cart_items (list[CartItem]): List of CartItem objects.
+        n_splits (int): Number of groups to split the cart items into.
+    Returns:
+        list[list[list[CartItem]]]: List of ways to split the cart items into n_splits groups.
+    """
+    # This is a complex combinatorial problem; a full implementation is non-trivial.
+    # Placeholder for actual implementation.
+    pass
+
 
 def main():
     my_cart = load_cart_items_from_file(CART_FILE_PATH)
@@ -702,7 +682,7 @@ def main():
         # Generate all combinations of coupons for the current group count
         coupon_combinations = generate_n_coupon_combinations(applicable_coupons, coupon_group_count, total_amount)
         for coupon_combo in coupon_combinations:
-            coupon_groups_and_totals.append((coupon_combo, calc_tot_coupons_cost(coupon_combo)))
+            coupon_groups_and_totals.append((coupon_combo, tot_coupons_cost(coupon_combo)))
         """
         # todo - generate all the coupon variations,
         # assume evry coupon can be used as many time as three are coupon codes
@@ -731,7 +711,7 @@ def main():
         # generate all possible item combinations, split into <item_group_count> groups
         item_combinations = generate_n_item_combinations(my_cart, item_group_count)
         for item_combo in item_combinations:
-            all_item_groups_and_totals.append((item_combo, calc_tot_items_cost(item_combo)))
+            all_item_groups_and_totals.append((item_combo, tot_items_cost(item_combo)))
 
 
     # now for each item_group_count, we need to generate all the possible WAYS to split the cart items into <item_group_count> groups
