@@ -2,6 +2,8 @@
 
 ## Project Overview
 This is a Python application for calculating optimal coupon combinations for AliExpress shopping cart discounts. The goal is to find the best combination of coupons to maximize savings on a cart of items.
+The cart items should be split into groups that match the number of coupons used, in such a way that only a single coupon is applied to each group, and the coupon's minimum total amount requirement is met by the total price of items in that group.
+The end goal is that the total discount across all groups is maximized.
 
 ## Code Style & Conventions
 - **Language**: Python 3.x
