@@ -516,7 +516,16 @@ def load_coupons_from_file(coupons_file_path: str,
     
     return coupons
 
-def calc_tot_cost(coupons: list[Coupon])
+def calc_tot_coupons_cost(coupons: list[Coupon]) -> float:
+    """
+    Calculate the total discount amount from a list of coupons.
+    Args:
+        coupons (list[Coupon]): List of Coupon objects.
+
+    Returns:
+        float: Total discount amount.
+    """
+    return sum(coupon.discount for coupon in coupons)
 
 def generate_all_coupon_combinations(coupons: list[Coupon],
                                      max_coupons: int | None = None,
@@ -536,10 +545,10 @@ def generate_all_coupon_combinations(coupons: list[Coupon],
 
     if max_coupons is None:
         max_coupons = len(coupons)
-    else:
-        if not isinstance(max_coupons, int) or max_coupons < 1: 
-            raise ValueError("max_coupons must be a positive integer or None.")
+
+    elif not isinstance(max_coupons, int) or max_coupons < 1:
         max_coupons = min(max_coupons, len(coupons))
+        raise ValueError("max_coupons must be a positive integer or None.")
 
     for c in coupons:
         if not isinstance(c, Coupon):
@@ -562,7 +571,7 @@ def generate_all_coupon_combinations(coupons: list[Coupon],
     
     return all_combinations
 
-def generate_n_coupon_comnibations(coupon_list:list[Coupon],
+def generate_n_coupon_combinations(coupon_list:list[Coupon],
                                    n: int,
                                    max_tot_discount: float | None = None) -> list[list[Coupon]]:
     """
@@ -575,7 +584,11 @@ def generate_n_coupon_comnibations(coupon_list:list[Coupon],
         list[list[Coupon]]: List of lists, each containing a combination of Coupon objects.
     """
     n_coupon_combs = combinations(coupon_list, n)
-    return [comb for comb in n_coupon_combs if calc_tot_cost(comb) <= max_tot_discount]
+
+    if max_tot_discount is None:
+        return list(n_coupon_combs)
+    
+    return [comb for comb in n_coupon_combs if calc_tot_coupons_cost(comb) <= max_tot_discount]
 
     # return list(chain.from_iterable(combinations(coupons, r) for r in range(1, max_coupons + 1)))
 
@@ -596,6 +609,32 @@ def generate_item_combinations(items: list[CartItem]) -> list[tuple[CartItem]]:
         all_combinations.extend(combs)
     
     return all_combinations
+
+def get_max_coupons_needed(total_amount: float, coupons: list[Coupon]) -> int:
+    """
+    Calculate the maximum number of coupons needed to reach the total amount.
+    Args:
+        total_amount (float): The total amount to reach.
+        coupons (list[Coupon]): List of Coupon objects.
+    Returns:
+        int: Maximum number of coupons needed.
+    """
+    if total_amount <= 0 or not coupons:
+        return 0
+
+    # Sort coupons by their price (ascending)
+    sorted_coupons = sorted(coupons, key=lambda c: c.min_total_amount)
+
+    max_coupons = 0
+    current_total = 0.0
+
+    for coupon in sorted_coupons:
+        current_total += coupon.discount
+        max_coupons += 1
+        if current_total >= total_amount:
+            break
+
+    return max_coupons
 
 def main():
     my_cart = load_cart_items_from_file(CART_FILE_PATH)
@@ -618,18 +657,14 @@ def main():
     #list of applicable coupons
     applicable_coupons = [coupon for coupon in available_coupons if coupon.is_applicable(total_amount)]
 
+    
+
     #list of applicable coupons PAIRS
-    applicable_coupon_pairs = [(c1, c2) for i, c1 in enumerate(available_coupons) for c2 in available_coupons[i+1:] if c1.is_applicable(total_amount) and c2.is_applicable(total_amount)]
+    # applicable_coupon_pairs = [(c1, c2) for i, c1 in enumerate(available_coupons) for c2 in available_coupons[i+1:] if c1.is_applicable(total_amount) and c2.is_applicable(total_amount)]
     # todo - check is AI suggested best coupon logic is correct
 
     #max coupons to reach the total amount (worst case scenario, from smallest coupon be ascending price):
-    max_coupons_needed:int = 0
-    total_discounted:float = 0.0
-    for discount in sorted([coupon.discount for coupon in available_coupons]): #sort discounts ascending
-        max_coupons_needed += 1
-        total_discounted += discount
-        if total_discounted >= total_amount:
-            break
+    max_coupons_needed = get_max_coupons_needed(total_amount, available_coupons)
 
     coupon_count_combo_range = range(1, max_coupons_needed + 1)
     coupon_groups = list[list[Coupon]]      # use this simple data structure and calculate the tot price on the fly
@@ -688,7 +723,6 @@ def main():
 
     # max_coupons_needed = math.ceil(total_amount / min(coupon.min_total_amount for coupon in available_coupons))
     
-
 
 if __name__ == "__main__":
     main()
