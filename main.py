@@ -610,6 +610,31 @@ def generate_item_combinations(items: list[CartItem]) -> list[tuple[CartItem]]:
     
     return all_combinations
 
+def generate_n_item_combinations(item_list: list[CartItem],
+                                 n: int) -> list[tuple[CartItem]]:
+    """
+    Generate possible combinations of n cart items.
+    Args:
+        item_list (list[CartItem]): List of CartItem objects to generate sub-groups from.
+        n (int): Number of CartItem objects in each sub-group.
+    Returns:
+        list[tuple[CartItem]]: List of tuples, each containing a combination of CartItem objects.
+    """
+    if not item_list or n < 1 or n > len(item_list):
+        return []
+    
+    return list(combinations(item_list, n))
+
+def calc_tot_items_cost(items: list[CartItem] | tuple[CartItem]) -> float:
+    """
+    Calculate the total cost of a list of cart items.
+    Args:
+        items (list[CartItem] | tuple[CartItem]): Collection of CartItem objects.
+    Returns:
+        float: Total cost of all items.
+    """
+    return sum(item.get_total_price() for item in items)
+
 def get_max_coupons_needed(total_amount: float, coupons: list[Coupon]) -> int:
     """
     Calculate the maximum number of coupons needed to reach the total amount.
@@ -642,6 +667,10 @@ def main():
         print("Cart is empty.")
         return
     
+    print("Cart items loaded:")
+    for item in my_cart:
+        print(f" - {item}")
+    
     available_coupons = load_coupons_from_file(COUPONS_FILE_PATH)
     if not available_coupons:
         print("No available coupons.")
@@ -667,12 +696,14 @@ def main():
     max_coupons_needed = get_max_coupons_needed(total_amount, available_coupons)
 
     coupon_count_combo_range = range(1, max_coupons_needed + 1)
-    coupon_groups = list[list[Coupon]]      # use this simple data structure and calculate the tot price on the fly
+    coupon_groups_and_totals = list[(list[Coupon], float)]      # use this simple data structure and calculate the tot price on the fly
 
-
-
-    for group_count in coupon_count_combo_range:
-
+    for coupon_group_count in coupon_count_combo_range:
+        # Generate all combinations of coupons for the current group count
+        coupon_combinations = generate_n_coupon_combinations(applicable_coupons, coupon_group_count, total_amount)
+        for coupon_combo in coupon_combinations:
+            coupon_groups_and_totals.append((coupon_combo, calc_tot_coupons_cost(coupon_combo)))
+        """
         # todo - generate all the coupon variations,
         # assume evry coupon can be used as many time as three are coupon codes
 
@@ -692,25 +723,27 @@ def main():
         # so implement CUMSUM tree for all coupons
         # a potential complication is that each node can be used once OR MORE
         pass
+        """
 
     # generate all possible item combinations, <coupon_count_combo_range> groups
-    all_item_groups = list[list[CartItem]]  # use this simple data structure and calculate the tot price on the fly
+    all_item_groups_and_totals = list[(list[CartItem], float)]  # use this simple data structure and calculate the tot price on the fly
     for item_group_count in coupon_count_combo_range:
-        # for one group this is just all the cart items
-        # for 2 items this is (<number cart items> choose 2) options
-        # for 3 items this is (<number cart items> choose 3) options
-        # demo:
-        # cart: [1,2,3]
-        # 1:    ([1,2,3])
-        # 2:    ([1], [2,3]), ([2],[1,3]), ([3],[1,2])
-        # 3:    ([1]), ([2]), ([3]) - redundant?
-        # note for 3 groups example: matching a coupon combo to an item will be a nigtmare...
-        # maybe dont consider this option, as this is not reallistic
-        
+        # generate all possible item combinations, split into <item_group_count> groups
+        item_combinations = generate_n_item_combinations(my_cart, item_group_count)
+        for item_combo in item_combinations:
+            all_item_groups_and_totals.append((item_combo, calc_tot_items_cost(item_combo)))
 
-        pass
-    
-    # after generating all the combinations of coupons and cart items:
+
+    # now for each item_group_count, we need to generate all the possible WAYS to split the cart items into <item_group_count> groups
+    items_group_coupon_group_delta_list = list[(list[CartItem], list[Coupon], float)]
+
+    # match item groups to coupon groups
+    for item_combo in all_item_groups_and_totals:
+        item_group, item_total = item_combo
+        for coupon_group in coupon_groups_and_totals:
+            coupon_combo, coupon_total = coupon_group
+            if item_total >= coupon_total:
+                items_group_coupon_group_delta_list.append((item_group, coupon_combo, item_total - coupon_total))    # after generating all the combinations of coupons and cart items:
     # find some way to "pit them" against each other:
     # this is done by group count:
     # i.e. X COUPONS VS A COMBINATION OF ITEMS SORTED INTO X GROUPS  
