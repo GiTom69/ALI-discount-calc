@@ -376,7 +376,8 @@ def load_cart_items_from_file(cart_file_path: str) -> list[CartItem]:
     
     return cart_items
 
-def load_coupons_from_file(coupons_file_path: str, max_rows_for_coupon: int = 5) -> list[Coupon]:
+def load_coupons_from_file(coupons_file_path: str,
+                           max_rows_for_coupon: int = 5) -> list[Coupon]:
     """
     Load coupons from a text file.
     
@@ -515,7 +516,11 @@ def load_coupons_from_file(coupons_file_path: str, max_rows_for_coupon: int = 5)
     
     return coupons
 
-def generate_coupon_combinations(coupons: list[Coupon], max_coupons: int | None = None) -> list[tuple[Coupon]]:
+def calc_tot_cost(coupons: list[Coupon])
+
+def generate_all_coupon_combinations(coupons: list[Coupon],
+                                     max_coupons: int | None = None,
+                                     max_tot_discount: float | None = None) -> list[tuple[Coupon]]:
     """
     Generate all possible combinations of the given coupons, optionally limiting the maximum number of coupons in a combination.
 
@@ -547,17 +552,30 @@ def generate_coupon_combinations(coupons: list[Coupon], max_coupons: int | None 
         valid_combs = []
 
         for combo in all_coupon_combs:
-            sum_min_total_amount = sum(c.min_total_amount for c in combo)
-            sum_discounts = sum(c.discount for c in combo)
+            sum_min_total_amount =  sum(c.min_total_amount for c in combo)
+            sum_discounts =         sum(c.discount for c in combo)
 
-            if sum_min_total_amount <= sum_discounts:
+            if sum_min_total_amount <= max_tot_discount:
                 valid_combs.append(combo)
 
         all_combinations.extend(valid_combs)
     
     return all_combinations
 
-
+def generate_n_coupon_comnibations(coupon_list:list[Coupon],
+                                   n: int,
+                                   max_tot_discount: float | None = None) -> list[list[Coupon]]:
+    """
+    Generate possible combinations n of coupons, where the sum of coupon discounts is less than max_tot_discount.
+    Args:
+        coupon_list         (list[Coupon]): List of Coupon objects to generate sub-groups from.
+        n                   (int):          number of Coupon objects in each sub-groups.
+        max_tot_discount    (float | None): the maximum sum of all coupon discounts in a sub-groups.
+    Returns:
+        list[list[Coupon]]: List of lists, each containing a combination of Coupon objects.
+    """
+    n_coupon_combs = combinations(coupon_list, n)
+    return [comb for comb in n_coupon_combs if calc_tot_cost(comb) <= max_tot_discount]
 
     # return list(chain.from_iterable(combinations(coupons, r) for r in range(1, max_coupons + 1)))
 
@@ -617,7 +635,9 @@ def main():
     coupon_groups = list[list[Coupon]]      # use this simple data structure and calculate the tot price on the fly
 
 
-    for counpon_count in coupon_count_combo_range:
+
+    for group_count in coupon_count_combo_range:
+
         # todo - generate all the coupon variations,
         # assume evry coupon can be used as many time as three are coupon codes
 
