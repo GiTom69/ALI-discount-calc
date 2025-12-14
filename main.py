@@ -124,8 +124,8 @@ class CartItem:
         """String representation of the CartItem instance."""
         return f"CartItem(name={self.name}, price={self.price}, quantity={self.quantity})"
 
-COUPONS_FILE_PATH = "coupons.txt"
-CART_FILE_PATH = "cart.txt"
+COUPONS_FILE_PATH = "example data\coupons 1.txt"
+CART_FILE_PATH = "example data\Shopping Cart1.txt"
 
 def load_cart_items_from_file(cart_file_path: str) -> list[CartItem]:
     """
@@ -640,101 +640,283 @@ def generate_cart_splits(cart_items: list[CartItem], n_splits: int) -> list[list
     # Placeholder for actual implementation.
     pass
 
+# ============================================================================
+# Step A: Preparation & Pre-filtering
+# ============================================================================
+
+def clean_coupons(coupons: list[Coupon], total_cart_value: float) -> list[Coupon]:
+    """
+    Remove coupons where min_total_amount > total_cart_value.
+    
+    Args:
+        coupons (list[Coupon]): List of all available coupons.
+        total_cart_value (float): Total value of all cart items.
+    
+    Returns:
+        list[Coupon]: Filtered list of applicable coupons.
+    """
+    return [coupon for coupon in coupons if coupon.min_total_amount <= total_cart_value]
+
+def sort_items_by_price_desc(items: list[CartItem]) -> list[CartItem]:
+    """
+    Sort cart items by price in descending order.
+    This helps the backtracking algorithm fail faster on invalid branches.
+    
+    Args:
+        items (list[CartItem]): List of CartItem objects.
+    
+    Returns:
+        list[CartItem]: Sorted list of CartItem objects (descending by price).
+    """
+    return sorted(items, key=lambda item: item.get_total_price(), reverse=True)
+
+# ============================================================================
+# Step B: Generate Coupon Combinations
+# ============================================================================
+
+def generate_all_coupon_subsets(coupons: list[Coupon], total_cart_value: float) -> list[tuple[list[Coupon], float]]:
+    """
+    Generate all possible subsets of coupons, calculate total discount for each,
+    sort by total discount descending, and filter infeasible subsets.
+    
+    Args:
+        coupons (list[Coupon]): List of available coupons.
+        total_cart_value (float): Total value of all cart items.
+    
+    Returns:
+        list[tuple[list[Coupon], float]]: List of (coupon_subset, total_discount) tuples,
+                                           sorted by total_discount descending.
+    """
+    all_subsets = []
+    
+    # Generate all non-empty subsets (from size 1 to len(coupons))
+    for r in range(1, len(coupons) + 1):
+        for subset in combinations(coupons, r):
+            subset_list = list(subset)
+            total_discount = tot_coupons_cost(subset_list)
+            
+            # Filter: sum of min_total_amount must not exceed total_cart_value
+            sum_min_amounts = sum(coupon.min_total_amount for coupon in subset_list)
+            
+            if sum_min_amounts <= total_cart_value:
+                all_subsets.append((subset_list, total_discount))
+    
+    # Sort by total_discount descending (best discounts first)
+    all_subsets.sort(key=lambda x: x[1], reverse=True)
+    
+    return all_subsets
+
+# ============================================================================
+# Step C: Feasibility Check (Recursive Backtracking)
+# ============================================================================
+
+def can_partition_items(items: list[CartItem], 
+                        coupons: list[Coupon]) -> tuple[bool, list[list[CartItem]] | None]:
+    """
+    Check if cart items can be partitioned into groups such that each group
+    satisfies the min_total_amount requirement of its corresponding coupon.
+    
+    Uses recursive backtracking with forward checking optimization.
+    
+    Args:
+        items (list[CartItem]): List of cart items (should be sorted by price desc).
+        coupons (list[Coupon]): List of coupons (one per group).
+    
+    Returns:
+        tuple[bool, list[list[CartItem]] | None]: 
+            - True and the partition if feasible
+            - False and None if not feasible
+    """
+    n_groups = len(coupons)
+    n_items = len(items)
+    
+    # Initialize groups
+    groups: list[list[CartItem]] = [[] for _ in range(n_groups)]
+    group_totals: list[float] = [0.0] * n_groups
+    
+    # Calculate total remaining value for all items
+    item_prices = [item.get_total_price() for item in items]
+    
+    def backtrack(item_index: int) -> bool:
+        """
+        Recursive backtracking function.
+        
+        Args:
+            item_index (int): Current item index being placed.
+        
+        Returns:
+            bool: True if a valid partition is found, False otherwise.
+        """
+        # Base case: all items have been placed
+        if item_index == n_items:
+            # Check if all groups meet their minimum requirements
+            for i in range(n_groups):
+                if group_totals[i] < coupons[i].min_total_amount:
+                    return False
+            return True
+        
+        # Calculate remaining cart value (items not yet placed)
+        remaining_value = sum(item_prices[item_index:])
+        
+        current_item = items[item_index]
+        current_item_price = item_prices[item_index]
+        
+        # Try placing current item in each group
+        for group_idx in range(n_groups):
+            # Add item to group
+            groups[group_idx].append(current_item)
+            group_totals[group_idx] += current_item_price
+            
+            # Forward Checking (Pruning):
+            # Check if remaining items can possibly satisfy unmet requirements
+            can_continue = True
+            for i in range(n_groups):
+                remaining_needed = coupons[i].min_total_amount - group_totals[i]
+                # If this group needs more than what's remaining (including current item's contribution)
+                if remaining_needed > remaining_value:
+                    can_continue = False
+                    break
+            
+            # Recurse if forward checking passes
+            if can_continue and backtrack(item_index + 1):
+                return True
+            
+            # Backtrack: remove item from group
+            groups[group_idx].pop()
+            group_totals[group_idx] -= current_item_price
+        
+        return False
+    
+    # Start backtracking
+    success = backtrack(0)
+    
+    if success:
+        # Return deep copy of groups to preserve the solution
+        return True, [group[:] for group in groups]
+    else:
+        return False, None
+
+def find_optimal_coupon_combination(items: list[CartItem], 
+                                    coupons: list[Coupon]) -> tuple[list[Coupon], list[list[CartItem]], float] | None:
+    """
+    Find the optimal coupon combination that maximizes total discount.
+    
+    Implements the complete algorithm:
+    - Step A: Clean and prepare inputs
+    - Step B: Generate and sort coupon subsets
+    - Step C: Check feasibility with backtracking
+    
+    Args:
+        items (list[CartItem]): List of cart items.
+        coupons (list[Coupon]): List of available coupons.
+    
+    Returns:
+        tuple[list[Coupon], list[list[CartItem]], float] | None:
+            - (selected_coupons, item_groups, total_discount) if solution found
+            - None if no valid combination exists
+    """
+    # Step A: Preparation & Pre-filtering
+    total_cart_value = tot_items_cost(items)
+    
+    # Clean coupons (remove those with min_total_amount > total_cart_value)
+    valid_coupons = clean_coupons(coupons, total_cart_value)
+    
+    if not valid_coupons:
+        return None
+    
+    # Sort items by price descending
+    sorted_items = sort_items_by_price_desc(items)
+    
+    # Step B: Generate Coupon Combinations
+    coupon_subsets = generate_all_coupon_subsets(valid_coupons, total_cart_value)
+    
+    if not coupon_subsets:
+        return None
+    
+    # Step C: Feasibility Check
+    # Iterate through coupon subsets (already sorted by total_discount descending)
+    for coupon_subset, total_discount in coupon_subsets:
+        # Try to partition items for this coupon subset
+        feasible, item_partition = can_partition_items(sorted_items, coupon_subset)
+        
+        if feasible:
+            # Found the optimal solution (first feasible one with highest discount)
+            return coupon_subset, item_partition, total_discount
+    
+    # No feasible solution found
+    return None
+
 
 def main():
+    # Load cart items
     my_cart = load_cart_items_from_file(CART_FILE_PATH)
     if not my_cart:
         print("Cart is empty.")
         return
     
+    print("=" * 80)
     print("Cart items loaded:")
+    print("=" * 80)
+    total_cart_value = tot_items_cost(my_cart)
     for item in my_cart:
-        print(f" - {item}")
+        print(f" - {item.name[:50]:50s} ${item.get_total_price():7.2f}")
+    print("-" * 80)
+    print(f"{'Total Cart Value:':50s} ${total_cart_value:7.2f}")
+    print("=" * 80)
+    print()
     
+    # Load coupons
     available_coupons = load_coupons_from_file(COUPONS_FILE_PATH)
     if not available_coupons:
         print("No available coupons.")
         return
     
-    total_amount = sum(item.get_total_price() for item in my_cart)
-    if total_amount < any(coupon.min_total_amount for coupon in available_coupons):
-        print("Total amount is less than the minimum required for any coupon.")
+    print("Available coupons:")
+    print("=" * 80)
+    for coupon in available_coupons:
+        print(f" - {coupon.code:12s} Min: ${coupon.min_total_amount:7.2f} Discount: ${coupon.discount:7.2f}")
+    print("=" * 80)
+    print()
+    
+    # Find optimal coupon combination
+    print("Finding optimal coupon combination...")
+    result = find_optimal_coupon_combination(my_cart, available_coupons)
+    
+    if result is None:
+        print("\nNo valid coupon combination found.")
+        print("This could mean:")
+        print(" - No single coupon or combination meets the minimum requirements")
+        print(" - Cart items cannot be split to satisfy multiple coupons")
         return
     
-
-
-    #list of applicable coupons
-    applicable_coupons = [coupon for coupon in available_coupons if coupon.is_applicable(total_amount)]
-
+    selected_coupons, item_groups, total_discount = result
     
-
-    #list of applicable coupons PAIRS
-    # applicable_coupon_pairs = [(c1, c2) for i, c1 in enumerate(available_coupons) for c2 in available_coupons[i+1:] if c1.is_applicable(total_amount) and c2.is_applicable(total_amount)]
-    # todo - check is AI suggested best coupon logic is correct
-
-    #max coupons to reach the total amount (worst case scenario, from smallest coupon be ascending price):
-    max_coupons_needed = get_max_coupons_needed(total_amount, available_coupons)
-
-    coupon_count_combo_range = range(1, max_coupons_needed + 1)
-    coupon_groups_and_totals = list[(list[Coupon], float)]      # use this simple data structure and calculate the tot price on the fly
-
-    for coupon_group_count in coupon_count_combo_range:
-        # Generate all combinations of coupons for the current group count
-        coupon_combinations = generate_n_coupon_combinations(applicable_coupons, coupon_group_count, total_amount)
-        for coupon_combo in coupon_combinations:
-            coupon_groups_and_totals.append((coupon_combo, tot_coupons_cost(coupon_combo)))
-        """
-        # todo - generate all the coupon variations,
-        # assume evry coupon can be used as many time as three are coupon codes
-
-        # for each counpon_count:
-        # create a list <coupon_groups> of coupon combinations with a total price for each combination
-
-        #this shit is easy for 1 coupon     (just check if each coupon is applicable)
-        #this shit is easy for 2 coupons    (just create a 2x2 table/matrix, and check is each value is applicable)
-        # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^    this can be optimized by checking for c1 then generating new tot price,
-        # then test is c2 is applicable against new price
-        # this efficent method could scale well to more coupons, need to check this
+    # Display results
+    print("\n" + "=" * 80)
+    print("OPTIMAL SOLUTION FOUND!")
+    print("=" * 80)
+    print(f"\nTotal Discount: ${total_discount:.2f}")
+    print(f"Final Price: ${total_cart_value - total_discount:.2f}")
+    print(f"Savings: {(total_discount / total_cart_value * 100):.1f}%")
+    print("\n" + "-" * 80)
+    print("Coupon Usage:")
+    print("-" * 80)
+    
+    for i, (coupon, item_group) in enumerate(zip(selected_coupons, item_groups), 1):
+        group_total = tot_items_cost(item_group)
+        group_discount = coupon.discount
+        group_final = group_total - group_discount
         
-        # the easy to implement way is to create a X dimentional data structure, where X is the number of coupons.
-        # then generate the price for each combination, but this gets computationally expensive - fast.
-        # the better way would be the ABOVE cumsum tree.
-        # 
-        # so implement CUMSUM tree for all coupons
-        # a potential complication is that each node can be used once OR MORE
-        pass
-        """
-
-    # generate all possible item combinations, <coupon_count_combo_range> groups
-    all_item_groups_and_totals = list[(list[CartItem], float)]  # use this simple data structure and calculate the tot price on the fly
-    for item_group_count in coupon_count_combo_range:
-        # generate all possible item combinations, split into <item_group_count> groups
-        item_combinations = generate_n_item_combinations(my_cart, item_group_count)
-        for item_combo in item_combinations:
-            all_item_groups_and_totals.append((item_combo, tot_items_cost(item_combo)))
-
-
-    # now for each item_group_count, we need to generate all the possible WAYS to split the cart items into <item_group_count> groups
-    items_group_coupon_group_delta_list = list[(list[CartItem], list[Coupon], float)]
-
-    # match item groups to coupon groups
-    for item_combo in all_item_groups_and_totals:
-        item_group, item_total = item_combo
-        for coupon_group in coupon_groups_and_totals:
-            coupon_combo, coupon_total = coupon_group
-            if item_total >= coupon_total:
-                items_group_coupon_group_delta_list.append((item_group, coupon_combo, item_total - coupon_total))    # after generating all the combinations of coupons and cart items:
-    # find some way to "pit them" against each other:
-    # this is done by group count:
-    # i.e. X COUPONS VS A COMBINATION OF ITEMS SORTED INTO X GROUPS  
-
-    # ok this is complex as fuckkkkkkkkkk
-    # implement this in in the easy way, one coupop, then 2 coupons
-
-    #maybe this algoritm could be optimised with the assumption:
-    # of both coupons and cart items are sorted by price????????  
-
-    # max_coupons_needed = math.ceil(total_amount / min(coupon.min_total_amount for coupon in available_coupons))
+        print(f"\nGroup {i}: Coupon {coupon.code}")
+        print(f"  Min Required: ${coupon.min_total_amount:.2f}")
+        print(f"  Group Total:  ${group_total:.2f}")
+        print(f"  Discount:     ${group_discount:.2f}")
+        print(f"  Final:        ${group_final:.2f}")
+        print(f"  Items in group:")
+        for item in item_group:
+            print(f"    - {item.name[:45]:45s} ${item.get_total_price():7.2f}")
+    
+    print("\n" + "=" * 80)
     
 
 if __name__ == "__main__":
